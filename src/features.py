@@ -1,4 +1,4 @@
-"""Ekstraksi fitur dari hasil parsing .lin untuk 2-stage Random Forest.
+"""Ekstraksi fitur dari hasil parsing .lin untuk 2-stage Neural Network (MLP/LSTM).
 
 Fitur mengikuti C23 paper (Lin et al., 2023) Tabel 2, perspektif NS:
   player_hcp_[suit]   — HCP North per suit (0-10)

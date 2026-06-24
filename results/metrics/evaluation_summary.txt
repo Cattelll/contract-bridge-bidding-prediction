@@ -1,21 +1,21 @@
-=== RINGKASAN EVALUASI MODEL 2-STAGE RANDOM FOREST ===
+=== RINGKASAN EVALUASI MODEL 2-STAGE MLP NEURAL NETWORK ===
 Test set     : 1154 sampel
 Fitur        : 98
 
 === 7 INDIKATOR (C23 Tabel 4) ===
-MS            0.6369
-SCA           0.1473
+MS            0.6742
+SCA           0.1326
 SCU           0.0000
-SSE           0.1222
-O             0.0936
-SC (utama)    0.7842
-SS            0.7591
+SSE           0.0971
+O             0.0962
+SC (utama)    0.8068
+SS            0.7712
 
 === PERBANDINGAN DENGAN C23 PAPER ===
-SC (metrik utama): 0.7842 (paper: 0.773)
-SS              : 0.7591
-MS              : 0.6369
+SC (metrik utama): 0.8068 (paper: 0.773)
+SS              : 0.7712
+MS              : 0.6742
 
 === F1 PER STAGE ===
-Stage 1 (Suit)     F1 weighted: 0.7588
-Stage 2 (Category) F1 weighted: 0.7830
+Stage 1 (Suit)     F1 weighted: 0.7702
+Stage 2 (Category) F1 weighted: 0.8029

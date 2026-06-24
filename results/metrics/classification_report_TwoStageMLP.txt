@@ -1,0 +1,35 @@
+=== TwoStageMLP — Stage 1: Suit ===
+              precision    recall  f1-score   support
+
+           C       0.75      0.73      0.74       117
+           D       0.74      0.74      0.74       130
+           H       0.76      0.80      0.78       226
+           N       0.69      0.63      0.66       188
+           P       0.86      0.86      0.86       224
+           S       0.78      0.81      0.80       269
+
+    accuracy                           0.77      1154
+   macro avg       0.76      0.76      0.76      1154
+weighted avg       0.77      0.77      0.77      1154
+
+=== TwoStageMLP — Stage 2: Category ===
+              precision    recall  f1-score   support
+
+        game       0.70      0.77      0.74       272
+  grand_slam       0.50      0.23      0.32        13
+   partscore       0.86      0.88      0.87       582
+        pass       0.90      0.83      0.87       224
+  small_slam       0.43      0.32      0.37        63
+
+    accuracy                           0.81      1154
+   macro avg       0.68      0.61      0.63      1154
+weighted avg       0.80      0.81      0.80      1154
+
+=== 7-Indikator Summary ===
+MS            0.6742
+SCA           0.1326
+SCU           0.0000
+SSE           0.0971
+O             0.0962
+SC (utama)    0.8068
+SS            0.7712

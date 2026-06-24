@@ -144,13 +144,13 @@ def evaluate(
     X_test: pd.DataFrame,
     y_suit_test: pd.Series,
     y_cat_test: pd.Series,
-    model_name: str = "TwoStageRF",
+    model_name: str = "TwoStageMLP",
     save_figures: bool = True,
 ) -> dict:
     """Evaluasi lengkap: 7 indikator, F1, confusion matrix.
 
     Args:
-        model: Model TwoStageRF yang sudah di-fit
+        model: Model yang sudah di-fit (TwoStageMLP atau TwoStageLSTM)
         X_test: Feature matrix test set
         y_suit_test: Label suit yang benar
         y_cat_test: Label kategori yang benar
@@ -256,7 +256,7 @@ def plot_feature_importance(
     imp_suit: pd.Series,
     imp_cat: pd.Series,
     top_n: int = 20,
-    model_name: str = "TwoStageRF",
+    model_name: str = "TwoStageMLP",
 ) -> None:
     """Plot feature importance kedua stage (C23 Figure 4 style)."""
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
@@ -278,7 +278,7 @@ def plot_feature_importance(
     print(f"  Feature importance disimpan: {out}")
 
 
-def plot_indicator_bar(summary: pd.Series, model_name: str = "TwoStageRF") -> None:
+def plot_indicator_bar(summary: pd.Series, model_name: str = "TwoStageMLP") -> None:
     """Bar chart proporsi 7 indikator."""
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(figsize=(9, 4))

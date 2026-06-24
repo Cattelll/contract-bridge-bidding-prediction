@@ -171,7 +171,9 @@ NN_PARAMS = {
     "verbose": 0,
 }
 
-MODEL_PATH = Path("results/metrics/nn_model.h5")
+MODEL_PATH      = Path("results/metrics/nn_model.h5")   # backward-compat
+MLP_MODEL_PATH  = Path("results/metrics/mlp/model.h5")
+LSTM_MODEL_PATH = Path("results/metrics/lstm/model.h5")
 
 
 # ---------------------------------------------------------------------------
