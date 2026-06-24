@@ -174,6 +174,23 @@ def _hand_to_bitmask(cards: List[str]) -> int:
     return sum(1 << _RANK_BIT[c] for c in cards if c in _RANK_BIT)
 
 
+def _board_hand_counts(row: pd.Series) -> Dict[str, int]:
+    """Hitung jumlah kartu per hand dari baris parsed_boards.csv."""
+    return {
+        "N": sum(len(v) for v in _parse_hand(str(row.get("north_hand_norm", ""))).values()),
+        "S": sum(len(v) for v in _parse_hand(str(row.get("south_hand_norm", ""))).values()),
+        "E": sum(len(v) for v in _parse_hand(str(row.get("east_hand_norm", ""))).values()),
+        "W": sum(len(v) for v in _parse_hand(str(row.get("west_hand_norm", ""))).values()),
+    }
+
+
+def is_valid_bridge_board(row: pd.Series) -> bool:
+    """True jika setiap hand punya 13 kartu dan total kartu 52."""
+    counts = _board_hand_counts(row)
+    total = sum(counts.values())
+    return total == 52 and all(count == 13 for count in counts.values())
+
+
 # ---------------------------------------------------------------------------
 # DDS computation
 # ---------------------------------------------------------------------------
@@ -259,6 +276,15 @@ def compute_best_contract(
 
 def label_row(row: pd.Series) -> Dict:
     """Hitung label kontrak terbaik untuk satu baris parsed_boards.csv."""
+    if not is_valid_bridge_board(row):
+        return {
+            "best_contract_strain":   None,
+            "best_contract_category": None,
+            "best_contract_level":    None,
+            "best_contract_token":    None,
+            "dds_available":          False,
+        }
+
     hands = {
         "N": _parse_hand(str(row.get("north_hand_norm", ""))),
         "S": _parse_hand(str(row.get("south_hand_norm", ""))),
@@ -290,7 +316,7 @@ def label_row(row: pd.Series) -> Dict:
 # Label seluruh dataset
 # ---------------------------------------------------------------------------
 
-def label_dataset(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
+def label_dataset(df: pd.DataFrame, verbose: bool = True, progress_every: int = 1000) -> pd.DataFrame:
     """Tambahkan kolom label DDS ke parsed_boards DataFrame.
 
     Args:
@@ -312,7 +338,7 @@ def label_dataset(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
     label_rows = []
     for i, (_, row) in enumerate(df.iterrows()):
         label_rows.append(label_row(row))
-        if verbose and (i + 1) % 500 == 0:
+        if verbose and progress_every > 0 and (i + 1) % progress_every == 0:
             pct = (i + 1) / len(df) * 100
             print(f"  {i + 1}/{len(df)} ({pct:.0f}%) selesai")
 
@@ -323,6 +349,125 @@ def label_dataset(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
         n_pass  = (result["best_contract_strain"] == "P").sum()
         n_valid = result["best_contract_strain"].notna().sum()
         n_fail  = len(df) - n_valid
+        print(f"\nSelesai. Valid: {n_valid} | PASS: {n_pass} | Gagal: {n_fail}")
+
+    return result
+
+
+def _label_row_from_dict(row_dict: dict) -> Dict:
+    """Helper for multiprocessing: accept a plain dict and return label dict."""
+    # Convert to Series locally so existing label_row can be reused
+    return label_row(pd.Series(row_dict))
+
+
+def label_dataset_parallel(df: pd.DataFrame, processes: Optional[int] = None,
+                           chunksize: int = 100, verbose: bool = True,
+                           progress_every: int = 1000) -> pd.DataFrame:
+    """Parallelized version of label_dataset using multiprocessing.Pool.
+
+    Notes:
+    - On Windows each worker will load the DDS DLL when first needed.
+    - This can significantly reduce wall-clock time on multi-core machines.
+    """
+    if not dds_available():
+        if verbose:
+            print(f"PERINGATAN: DDS tidak tersedia. DLL path: {DDS_DLL_PATH}")
+        return df
+
+    import multiprocessing as mp
+
+    records = df.to_dict(orient="records")
+    n = len(records)
+
+    if processes is None:
+        processes = max(1, mp.cpu_count() - 1)
+
+    if verbose:
+        print(f"DDS siap. Melabeli {n} board secara paralel ({processes} worker)...")
+
+    results = []
+    with mp.Pool(processes=processes) as pool:
+        for i, res in enumerate(pool.imap(_label_row_from_dict, records, chunksize)):
+            results.append(res)
+            if verbose and progress_every > 0 and (i + 1) % progress_every == 0:
+                pct = (i + 1) / n * 100
+                print(f"  {i + 1}/{n} ({pct:.0f}%) selesai")
+
+    df_labels = pd.DataFrame(results, index=df.index)
+    result = pd.concat([df, df_labels], axis=1)
+
+    if verbose:
+        n_pass  = (result["best_contract_strain"] == "P").sum()
+        n_valid = result["best_contract_strain"].notna().sum()
+        n_fail  = n - n_valid
+        print(f"\nSelesai. Valid: {n_valid} | PASS: {n_pass} | Gagal: {n_fail}")
+
+    return result
+
+
+def label_dataset_threaded(df: pd.DataFrame, max_workers: Optional[int] = None,
+                           chunksize: int = 100, verbose: bool = True,
+                           progress_every: int = 1000) -> pd.DataFrame:
+    """Threaded version using concurrent.futures.ThreadPoolExecutor.
+
+    This is safer to run from Jupyter on Windows than multiprocessing.Pool
+    because it doesn't spawn new Python interpreter processes.
+    """
+    if not dds_available():
+        if verbose:
+            print(f"PERINGATAN: DDS tidak tersedia. DLL path: {DDS_DLL_PATH}")
+        return df
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    records = df.to_dict(orient="records")
+    n = len(records)
+    if max_workers is None:
+        try:
+            max_workers = min(32, (os.cpu_count() or 1) + 4)
+        except Exception:
+            max_workers = 4
+
+    if verbose:
+        print(f"DDS siap. Melabeli {n} board dengan threads ({max_workers})...")
+
+    results: List[Optional[Dict]] = [None] * n
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = {ex.submit(_label_row_from_dict, rec): idx for idx, rec in enumerate(records)}
+        for i, fut in enumerate(as_completed(futures)):
+            idx = futures[fut]
+            try:
+                results[idx] = fut.result()
+            except Exception as e:
+                results[idx] = {
+                    "best_contract_strain": None,
+                    "best_contract_category": None,
+                    "best_contract_level": None,
+                    "best_contract_token": None,
+                    "dds_available": False,
+                }
+            if verbose and progress_every > 0 and (i + 1) % progress_every == 0:
+                pct = (i + 1) / n * 100
+                print(f"  {i + 1}/{n} ({pct:.0f}%) selesai")
+
+    typed_results = [
+        res if res is not None else {
+            "best_contract_strain": None,
+            "best_contract_category": None,
+            "best_contract_level": None,
+            "best_contract_token": None,
+            "dds_available": False,
+        }
+        for res in results
+    ]
+
+    df_labels = pd.DataFrame(typed_results, index=df.index)
+    result = pd.concat([df, df_labels], axis=1)
+
+    if verbose:
+        n_pass  = (result["best_contract_strain"] == "P").sum()
+        n_valid = result["best_contract_strain"].notna().sum()
+        n_fail  = n - n_valid
         print(f"\nSelesai. Valid: {n_valid} | PASS: {n_pass} | Gagal: {n_fail}")
 
     return result
@@ -350,6 +495,27 @@ def deduplicate_boards(df: pd.DataFrame) -> pd.DataFrame:
     ]
     result = pd.concat([open_rooms, closed_only], ignore_index=True)
     return result
+
+
+def repair_missing_boards(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Pisahkan board yang valid dari board yang masih kehilangan data penting.
+
+    Fungsi ini tetap memilih satu record per board, lalu menyaring board yang
+    tidak punya 13 kartu lengkap di setiap tangan. Board yang rusak dikembalikan
+    terpisah agar bisa dianalisis tanpa menjatuhkan DDS.
+    """
+    df_unique = deduplicate_boards(df).copy()
+    valid_mask = df_unique.apply(is_valid_bridge_board, axis=1)
+
+    df_valid = df_unique[valid_mask].copy().reset_index(drop=True)
+    df_invalid = df_unique[~valid_mask].copy().reset_index(drop=True)
+
+    if not df_valid.empty:
+        df_valid["board_data_status"] = "valid"
+    if not df_invalid.empty:
+        df_invalid["board_data_status"] = "missing_or_invalid"
+
+    return df_valid, df_invalid
 
 
 if __name__ == "__main__":

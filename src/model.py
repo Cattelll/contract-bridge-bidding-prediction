@@ -21,12 +21,140 @@ import joblib
 import warnings
 warnings.filterwarnings("ignore")
 
-import tensorflow as tf
-from tensorflow import keras
-from keras import layers, models
 from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.metrics import f1_score
+from sklearn.neural_network import MLPClassifier
+
+try:
+    import tensorflow as tf
+    from tensorflow import keras
+    from keras import layers, models
+except ModuleNotFoundError:
+    tf = None
+    keras = None
+    layers = None
+    models = None
+
+
+def _require_tensorflow() -> None:
+    if keras is None or layers is None:
+        raise ModuleNotFoundError(
+            "TensorFlow is required for model training/loading. Install tensorflow to use TwoStageMLP/TwoStageLSTM."
+        )
+
+
+HAS_TF = keras is not None and layers is not None
+
+
+class _SklearnTwoStageMLP:
+    """Fallback 2-stage MLP berbasis scikit-learn saat TensorFlow tidak tersedia."""
+
+    def __init__(self, input_dim: int, hidden_units: list = None, params: dict = None) -> None:
+        self.input_dim = input_dim
+        self.hidden_units = tuple(hidden_units or [256, 128, 64])
+        self.params = {**NN_PARAMS, **(params or {})}
+        self.model_suit = None
+        self.model_category = None
+        self.scaler = None
+        self.encoder_suit = None
+        self.encoder_category = None
+        self.feature_names_ = None
+        self.suit_classes_ = None
+        self.category_classes_ = None
+        self.backend = "sklearn-mlp"
+
+    def _build_mlp(self) -> MLPClassifier:
+        return MLPClassifier(
+            hidden_layer_sizes=self.hidden_units,
+            activation="relu",
+            solver="adam",
+            alpha=0.0001,
+            batch_size=self.params["batch_size"],
+            learning_rate_init=0.001,
+            max_iter=self.params["epochs"],
+            shuffle=True,
+            random_state=42,
+            verbose=False,
+            early_stopping=False,
+        )
+
+    def fit(
+        self,
+        X: pd.DataFrame,
+        y_suit: pd.Series,
+        y_category: pd.Series,
+    ) -> "_SklearnTwoStageMLP":
+        self.feature_names_ = list(X.columns)
+
+        self.scaler = StandardScaler()
+        X_scaled = self.scaler.fit_transform(X)
+
+        self.encoder_suit = LabelEncoder()
+        self.encoder_category = LabelEncoder()
+
+        y_suit_encoded = self.encoder_suit.fit_transform(y_suit)
+        y_category_encoded = self.encoder_category.fit_transform(y_category)
+
+        self.suit_classes_ = self.encoder_suit.classes_
+        self.category_classes_ = self.encoder_category.classes_
+
+        print("Building Stage 1 (suit predictor) - sklearn MLP...")
+        self.model_suit = self._build_mlp()
+        print("Training Stage 1 (suit)...")
+        self.model_suit.fit(X_scaled, y_suit_encoded)
+
+        print("Building Stage 2 (category predictor) - sklearn MLP...")
+        self.model_category = self._build_mlp()
+        print("Training Stage 2 (category)...")
+        self.model_category.fit(X_scaled, y_category_encoded)
+
+        return self
+
+    def predict(self, X: pd.DataFrame) -> pd.DataFrame:
+        X_scaled = self.scaler.transform(X)
+        y_suit_pred_idx = self.model_suit.predict(X_scaled)
+        y_cat_pred_idx = self.model_category.predict(X_scaled)
+
+        pred_suit = self.encoder_suit.inverse_transform(y_suit_pred_idx)
+        pred_category = self.encoder_category.inverse_transform(y_cat_pred_idx)
+
+        pred_level = _category_to_level(pred_suit, pred_category)
+        pred_contract = [
+            f"{lvl}{suit}" if suit != "P" else "PASS"
+            for lvl, suit in zip(pred_level, pred_suit)
+        ]
+
+        return pd.DataFrame(
+            {
+                "pred_suit": pred_suit,
+                "pred_category": pred_category,
+                "pred_level": pred_level,
+                "pred_contract": pred_contract,
+            },
+            index=X.index if hasattr(X, "index") else None,
+        )
+
+    def predict_suit(self, X: pd.DataFrame) -> np.ndarray:
+        X_scaled = self.scaler.transform(X)
+        y_pred_idx = self.model_suit.predict(X_scaled)
+        return self.encoder_suit.inverse_transform(y_pred_idx)
+
+    def predict_category(self, X: pd.DataFrame) -> np.ndarray:
+        X_scaled = self.scaler.transform(X)
+        y_pred_idx = self.model_category.predict(X_scaled)
+        return self.encoder_category.inverse_transform(y_pred_idx)
+
+    def feature_importance(self) -> tuple[pd.DataFrame, pd.DataFrame]:
+        if self.feature_names_ is None:
+            raise ValueError("Model belum dilatih.")
+
+        def _importance(model: MLPClassifier) -> pd.Series:
+            first_layer = np.abs(model.coefs_[0])
+            scores = first_layer.mean(axis=1)
+            return pd.Series(scores, index=self.feature_names_).sort_values(ascending=False)
+
+        return _importance(self.model_suit).to_frame("importance"), _importance(self.model_category).to_frame("importance")
 
 # ---------------------------------------------------------------------------
 # Konstanta
@@ -380,6 +508,9 @@ def _category_to_level(suits: np.ndarray, categories: np.ndarray) -> np.ndarray:
     """Konversi (suit, category) ke level kontrak minimum yang valid."""
     levels = []
     for suit, cat in zip(suits, categories):
+        if suit == "P" or cat == "pass":
+            levels.append(0)
+            continue
         if cat == "grand_slam":
             levels.append(7)
         elif cat == "small_slam":
@@ -397,7 +528,7 @@ def train(
     y_category_train: pd.Series,
     model_type: str = "mlp",
     params: dict = None,
-) -> Union[TwoStageMLP, TwoStageLSTM]:
+) -> Union[TwoStageMLP, TwoStageLSTM, _SklearnTwoStageMLP]:
     """Latih model neural network dengan tipe yang dipilih.
     
     Args:
@@ -416,8 +547,16 @@ def train(
         print("=" * 60)
         print("Training 2-Stage MLP Model")
         print("=" * 60)
-        model = TwoStageMLP(input_dim=X_train.shape[1], params=params)
+        if HAS_TF:
+            model = TwoStageMLP(input_dim=X_train.shape[1], params=params)
+        else:
+            print("TensorFlow tidak tersedia, memakai fallback sklearn MLP.")
+            model = _SklearnTwoStageMLP(input_dim=X_train.shape[1], params=params)
     elif model_type.lower() == "lstm":
+        if not HAS_TF:
+            raise ModuleNotFoundError(
+                "TensorFlow tidak tersedia, jadi LSTM tidak bisa dilatih. Install tensorflow atau gunakan MODEL_TYPE = \"mlp\"."
+            )
         print("=" * 60)
         print("Training 2-Stage LSTM Model")
         print("=" * 60)
@@ -430,35 +569,44 @@ def train(
     return model
 
 
-def save_model(model: Union[TwoStageMLP, TwoStageLSTM], path: Path = MODEL_PATH) -> None:
+def save_model(model: Union[TwoStageMLP, TwoStageLSTM, _SklearnTwoStageMLP], path: Path = MODEL_PATH) -> None:
     """Simpan model ke disk."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Save model
-    if isinstance(model, TwoStageMLP):
-        model.model_suit.save(path.parent / "model_suit.h5")
-        model.model_category.save(path.parent / "model_category.h5")
-    elif isinstance(model, TwoStageLSTM):
-        model.model_suit.save(path.parent / "model_suit_lstm.h5")
-        model.model_category.save(path.parent / "model_category_lstm.h5")
-    
-    # Save encoders and scaler
-    joblib.dump(model.scaler, path.parent / "scaler.pkl")
-    joblib.dump(model.encoder_suit, path.parent / "encoder_suit.pkl")
-    joblib.dump(model.encoder_category, path.parent / "encoder_category.pkl")
+
+    if isinstance(model, _SklearnTwoStageMLP):
+        joblib.dump(model, path.parent / "model_sklearn_mlp.pkl")
+    else:
+        # Save model
+        if isinstance(model, TwoStageMLP):
+            model.model_suit.save(path.parent / "model_suit.h5")
+            model.model_category.save(path.parent / "model_category.h5")
+        elif isinstance(model, TwoStageLSTM):
+            model.model_suit.save(path.parent / "model_suit_lstm.h5")
+            model.model_category.save(path.parent / "model_category_lstm.h5")
+
+        # Save encoders and scaler
+        joblib.dump(model.scaler, path.parent / "scaler.pkl")
+        joblib.dump(model.encoder_suit, path.parent / "encoder_suit.pkl")
+        joblib.dump(model.encoder_category, path.parent / "encoder_category.pkl")
     
     print(f"Model disimpan ke {path.parent}")
 
 
-def load_model(model_type: str = "mlp", path: Path = MODEL_PATH) -> Union[TwoStageMLP, TwoStageLSTM]:
+def load_model(model_type: str = "mlp", path: Path = MODEL_PATH) -> Union[TwoStageMLP, TwoStageLSTM, _SklearnTwoStageMLP]:
     """Load model dari disk."""
     path_dir = path.parent
+
+    sklearn_path = path_dir / "model_sklearn_mlp.pkl"
+    if sklearn_path.exists():
+        return joblib.load(sklearn_path)
     
     if model_type.lower() == "mlp":
+        _require_tensorflow()
         model = TwoStageMLP(input_dim=98)  # Dummy, akan di-load
         model.model_suit = keras.models.load_model(path_dir / "model_suit.h5")
         model.model_category = keras.models.load_model(path_dir / "model_category.h5")
     elif model_type.lower() == "lstm":
+        _require_tensorflow()
         model = TwoStageLSTM(input_dim=98)  # Dummy, akan di-load
         model.model_suit = keras.models.load_model(path_dir / "model_suit_lstm.h5")
         model.model_category = keras.models.load_model(path_dir / "model_category_lstm.h5")
