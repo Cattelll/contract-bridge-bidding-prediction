@@ -138,7 +138,10 @@ data/processed/*.pkl
 
 # Model files
 results/metrics/*.h5
+results/metrics/*.keras
 results/metrics/*.pkl
+results/metrics/mlp/*
+results/metrics/lstm/*
 results/figures/*.png
 results/figures/*.jpg
 results/figures/*.pdf

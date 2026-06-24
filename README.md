@@ -17,7 +17,9 @@ Data mentah berupa file `.lin` dari BBO yang diproses melalui parsing, feature e
 SkripsiBBO/
 ├── Claude/                 # Konteks proyek
 ├── data/
-│   └── parsed/            # Hasil parsing file .lin
+│   ├── parsed/            # Hasil parsing file .lin
+│   ├── processed/         # Dataset dan fitur hasil processing
+│   └── raw/               # File BBO .lin mentah (jika ada)
 ├── docs/                  # Dokumentasi tambahan
 ├── notebooks/             # Jupyter notebooks untuk eksperimen
 │   ├── 01_parsing.ipynb
@@ -27,10 +29,12 @@ SkripsiBBO/
 │   ├── 05_dataset.ipynb
 │   ├── 06_training.ipynb
 │   ├── 07_evaluasi.ipynb
-│   ├── 08_analisis.ipynb
-│   └── results/figures/   # Visualisasi hasil
-├── results/
-│   └── metrics/           # Hasil evaluasi model
+│   └── 08_analisis.ipynb
+├── results/               # Semua hasil (model, metrics, figures)
+│   ├── figures/           # Visualisasi hasil
+│   └── metrics/           # Hasil evaluasi dan model tersimpan
+│       ├── mlp/           # Trained MLP model files
+│       └── lstm/          # Trained LSTM model files
 ├── src/                   # Source code utama
 │   ├── parser.py          # Parser file .lin
 │   ├── features.py        # Feature extraction
@@ -84,19 +88,26 @@ Jalankan `notebooks/05_dataset.ipynb` untuk mempersiapkan dataset final.
 
 ### 6. Training Model
 
-Jalankan `notebooks/06_training.ipynb` dan pilih model type:
+Jalankan `notebooks/06_training.ipynb` untuk training **kedua model (MLP dan LSTM)** secara otomatis!
 
-```python
-# MLP (Rekomendasi untuk data tabular)
-MODEL_TYPE = "mlp"
+Notebook ini:
 
-# LSTM
-MODEL_TYPE = "lstm"
-```
+- Melatih 2-stage MLP untuk tabular features
+- Melatih 2-stage LSTM (mereshape fitur ke sequence)
+- Menyimpan model di `results/metrics/mlp` dan `results/metrics/lstm` (format Keras .keras)
+- Menampilkan prediksi sanity check
 
 ### 7. Evaluasi
 
-Jalankan `notebooks/07_evaluasi.ipynb` untuk mengevaluasi performa model.
+Jalankan `notebooks/07_evaluasi.ipynb` untuk mengevaluasi **kedua model (MLP & LSTM)**!
+
+Notebook ini:
+
+- Memuat model dari `results/metrics/mlp` dan `results/metrics/lstm`
+- Evaluasi menggunakan 7 indikator evaluasi
+- Menampilkan confusion matrix dan feature importance
+- Menyimpan semua hasil di `results/`
+- Bandingkan performa kedua model dan kinerjanya!
 
 ### 8. Analisis
 
@@ -104,10 +115,10 @@ Jalankan `notebooks/08_analisis.ipynb` untuk analisis hasil.
 
 ## Model Tersedia
 
-| Model    | Arsitektur                                                                                             | Kelebihan                                |
-| -------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
-| **MLP**  | Input (98) → Dense(256) + Dropout(0.3) → Dense(128) + Dropout(0.3) → Dense(64) + Dropout(0.3) → Output | Training cepat, cocok untuk data tabular |
-| **LSTM** | Input (10×9) → LSTM(128) + Dropout(0.3) → LSTM(64) + Dropout(0.3) → Dense(64) + Dropout(0.2) → Output  | Capture temporal dependencies            |
+| Model    | Arsitektur                                                                                             | Kelebihan                                | Format File    | Direktori Penyimpanan  |
+| -------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------- | -------------- | ---------------------- |
+| **MLP**  | Input (98) → Dense(256) + Dropout(0.3) → Dense(128) + Dropout(0.3) → Dense(64) + Dropout(0.3) → Output | Training cepat, cocok untuk data tabular | Keras (.keras) | `results/metrics/mlp`  |
+| **LSTM** | Input (10×9) → LSTM(128) + Dropout(0.3) → LSTM(64) + Dropout(0.3) → Dense(64) + Dropout(0.2) → Output  | Capture temporal dependencies            | Keras (.keras) | `results/metrics/lstm` |
 
 ## Fitur yang Diekstrak
 
@@ -134,3 +145,8 @@ Model dievaluasi menggunakan:
 ## Lisensi
 
 Proyek ini untuk keperluan skripsi S1 Ilmu Komputer.
+
+## Catatan Penting
+
+- Semua model, figure, dan hasil evaluasi disimpan di direktori **`results/`** (root project, bukan di `notebooks/results/`)
+- File model, metrics, dan figures diignore oleh git (lihat `.gitignore`)
