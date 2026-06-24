@@ -25,9 +25,6 @@ from sklearn.metrics import (
     confusion_matrix, f1_score, accuracy_score,
 )
 
-FIGURES_DIR = Path("results/figures")
-METRICS_DIR = Path("results/metrics")
-
 # Tabel IMP resmi WBF
 IMP_SCALE = [
     (20, 1), (50, 2), (90, 3), (130, 4), (170, 5),
@@ -38,6 +35,12 @@ IMP_SCALE = [
 ]
 
 TRICK_VALUE = {"C": 20, "D": 20, "H": 30, "S": 30, "N": 30}
+
+
+# Paths relative to project root (2 levels up from src/evaluate.py)
+PROJECT_ROOT = Path(__file__).parent.parent
+FIGURES_DIR = PROJECT_ROOT / "results/figures"
+METRICS_DIR = PROJECT_ROOT / "results/metrics"
 
 
 # ---------------------------------------------------------------------------
