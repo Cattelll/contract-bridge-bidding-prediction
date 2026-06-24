@@ -47,7 +47,7 @@ def _require_tensorflow() -> None:
 HAS_TF = keras is not None and layers is not None
 
 
-# Paths relative to project root (3 levels up from src/model.py)
+# Paths relative to project root (from src/model.py)
 PROJECT_ROOT = Path(__file__).parent.parent
 MODEL_PATH      = PROJECT_ROOT / "results/metrics/nn_model.h5"   # backward-compat
 MLP_MODEL_PATH  = PROJECT_ROOT / "results/metrics/mlp/model.keras"
