@@ -6,12 +6,14 @@ seaborn>=0.12.0
 joblib>=1.3.0
 
 # Deep Learning — MLP dan LSTM
-tensorflow>=2.13.0
-keras>=2.13.0
+# tensorflow>=2.16.0 adalah rilis pertama dengan wheel resmi Python 3.12
+# Keras 3 (>=3.0.0) adalah standar baru: multi-backend, support Python 3.12
+tensorflow>=2.16.0
+keras>=3.0.0
 
 # Double Dummy Solver — untuk DDS labeling (Step 4)
-# CATATAN: .venv menggunakan Python 3.12 (endplay butuh Python <=3.13)
-endplay>=0.4.7
+# endplay 0.5.x menyediakan wheel pre-built untuk Python 3.9–3.13 (termasuk 3.12)
+endplay>=0.5.12
 
 # Jupyter Notebook
 ipykernel>=6.0.0

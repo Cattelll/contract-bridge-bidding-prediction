@@ -207,7 +207,7 @@ def evaluate(
 
         # Feature importance (jika model menyimpan feature_names_)
         if hasattr(model, "feature_importance"):
-            imp_suit, imp_cat = model.feature_importance()
+            imp_suit, imp_cat = model.feature_importance(feature_names=X_test.columns)
             plot_feature_importance(imp_suit, imp_cat, top_n=20, model_name=model_name)
 
     return {

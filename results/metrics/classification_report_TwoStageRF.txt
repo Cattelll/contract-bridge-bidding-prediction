@@ -1,0 +1,35 @@
+=== TwoStageRF — Stage 1: Suit ===
+              precision    recall  f1-score   support
+
+           C       0.72      0.72      0.72       117
+           D       0.73      0.69      0.71       130
+           H       0.76      0.79      0.77       226
+           N       0.62      0.61      0.62       188
+           P       0.87      0.86      0.86       224
+           S       0.79      0.80      0.80       269
+
+    accuracy                           0.76      1154
+   macro avg       0.75      0.75      0.75      1154
+weighted avg       0.76      0.76      0.76      1154
+
+=== TwoStageRF — Stage 2: Category ===
+              precision    recall  f1-score   support
+
+        game       0.69      0.71      0.70       272
+  grand_slam       0.33      0.15      0.21        13
+   partscore       0.84      0.86      0.85       582
+        pass       0.88      0.82      0.85       224
+  small_slam       0.42      0.43      0.43        63
+
+    accuracy                           0.78      1154
+   macro avg       0.63      0.59      0.61      1154
+weighted avg       0.78      0.78      0.78      1154
+
+=== 7-Indikator Summary ===
+MS            0.6369
+SCA           0.1473
+SCU           0.0000
+SSE           0.1222
+O             0.0936
+SC (utama)    0.7842
+SS            0.7591

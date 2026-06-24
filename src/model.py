@@ -322,6 +322,45 @@ class TwoStageMLP:
         y_pred_idx = np.argmax(self.model_category.predict(X_scaled, verbose=0), axis=1)
         return self.encoder_category.inverse_transform(y_pred_idx)
 
+    def feature_importance(self, feature_names=None) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Hitung feature importance dari bobot input layer pertama MLP.
+
+        Menggunakan mean absolute value dari bobot layer pertama sebagai
+        proxy importansi fitur — pendekatan standar untuk feed-forward NN.
+
+        Args:
+            feature_names: Opsional. Daftar nama fitur. Digunakan sebagai
+                fallback jika model dimuat dari disk sebelum feature_names
+                disimpan (gunakan list(X_test.columns)).
+
+        Returns:
+            (imp_suit, imp_cat): DataFrame dengan kolom 'importance',
+            diurutkan dari yang terpenting.
+        """
+        names = self.feature_names_ or (list(feature_names) if feature_names is not None else None)
+        if names is None or self.model_suit is None:
+            raise ValueError(
+                "feature_names_ tidak tersedia. Berikan argumen feature_names, "
+                "contoh: model.feature_importance(feature_names=X_test.columns)"
+            )
+        # Cache for future calls
+        if self.feature_names_ is None:
+            self.feature_names_ = names
+
+        def _layer_importance(keras_model, feat_names):
+            for layer in keras_model.layers:
+                weights = layer.get_weights()
+                if len(weights) > 0:
+                    W = weights[0]  # shape: (input_dim, units)
+                    if W.shape[0] == len(feat_names):
+                        scores = np.abs(W).mean(axis=1)
+                        return pd.Series(scores, index=feat_names).sort_values(ascending=False)
+            raise ValueError("Tidak ada layer dengan bobot input yang cocok.")
+
+        imp_suit = _layer_importance(self.model_suit, names).to_frame("importance")
+        imp_cat  = _layer_importance(self.model_category, names).to_frame("importance")
+        return imp_suit, imp_cat
+
 
 # ---------------------------------------------------------------------------
 # Model Architecture — LSTM
@@ -499,6 +538,46 @@ class TwoStageLSTM:
         y_pred_idx = np.argmax(self.model_category.predict(X_seq, verbose=0), axis=1)
         return self.encoder_category.inverse_transform(y_pred_idx)
 
+    def feature_importance(self, feature_names=None) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Hitung feature importance dari bobot input layer LSTM.
+
+        Untuk LSTM, menggunakan mean absolute value dari kernel weights
+        (gate input weights) pada layer LSTM pertama sebagai proxy importansi.
+        Shape kernel LSTM: (input_dim, units*4) — rata-rata semua gate.
+
+        Args:
+            feature_names: Opsional. Daftar nama fitur. Digunakan sebagai
+                fallback jika model dimuat dari disk sebelum feature_names
+                disimpan (gunakan list(X_test.columns)).
+
+        Returns:
+            (imp_suit, imp_cat): DataFrame dengan kolom 'importance',
+            diurutkan dari yang terpenting.
+        """
+        names = self.feature_names_ or (list(feature_names) if feature_names is not None else None)
+        if names is None or self.model_suit is None:
+            raise ValueError(
+                "feature_names_ tidak tersedia. Berikan argumen feature_names, "
+                "contoh: model.feature_importance(feature_names=X_test.columns)"
+            )
+        # Cache for future calls
+        if self.feature_names_ is None:
+            self.feature_names_ = names
+
+        def _layer_importance(keras_model, feat_names):
+            for layer in keras_model.layers:
+                weights = layer.get_weights()
+                if len(weights) > 0:
+                    W = weights[0]  # Dense: (input_dim, units) | LSTM kernel: (input_dim, units*4)
+                    if W.shape[0] == len(feat_names):
+                        scores = np.abs(W).mean(axis=1)
+                        return pd.Series(scores, index=feat_names).sort_values(ascending=False)
+            raise ValueError("Tidak ada layer dengan bobot input yang cocok.")
+
+        imp_suit = _layer_importance(self.model_suit, names).to_frame("importance")
+        imp_cat  = _layer_importance(self.model_category, names).to_frame("importance")
+        return imp_suit, imp_cat
+
 
 # ---------------------------------------------------------------------------
 # Helper Functions
@@ -584,16 +663,29 @@ def save_model(model: Union[TwoStageMLP, TwoStageLSTM, _SklearnTwoStageMLP], pat
             model.model_suit.save(path.parent / "model_suit_lstm.h5")
             model.model_category.save(path.parent / "model_category_lstm.h5")
 
-        # Save encoders and scaler
+        # Save encoders, scaler, and feature names
         joblib.dump(model.scaler, path.parent / "scaler.pkl")
         joblib.dump(model.encoder_suit, path.parent / "encoder_suit.pkl")
         joblib.dump(model.encoder_category, path.parent / "encoder_category.pkl")
+        if model.feature_names_ is not None:
+            joblib.dump(model.feature_names_, path.parent / "feature_names.pkl")
     
     print(f"Model disimpan ke {path.parent}")
 
 
 def load_model(model_type: str = "mlp", path: Path = MODEL_PATH) -> Union[TwoStageMLP, TwoStageLSTM, _SklearnTwoStageMLP]:
-    """Load model dari disk."""
+    """Load model dari disk.
+    
+    Args:
+        model_type: Tipe model ('mlp' atau 'lstm'). Jika diberikan Path,
+                    akan diperlakukan sebagai argumen ``path`` (backward-compat).
+        path: Path ke direktori/file model.
+    """
+    # Backward-compat: allow load_model(MODEL_PATH) without keyword
+    if isinstance(model_type, (str, bytes)) is False or isinstance(model_type, Path):
+        path = Path(model_type)
+        model_type = "mlp"
+
     path_dir = path.parent
 
     sklearn_path = path_dir / "model_sklearn_mlp.pkl"
@@ -616,6 +708,11 @@ def load_model(model_type: str = "mlp", path: Path = MODEL_PATH) -> Union[TwoSta
     model.scaler = joblib.load(path_dir / "scaler.pkl")
     model.encoder_suit = joblib.load(path_dir / "encoder_suit.pkl")
     model.encoder_category = joblib.load(path_dir / "encoder_category.pkl")
+
+    # Restore feature names if saved
+    _feat_names_path = path_dir / "feature_names.pkl"
+    if _feat_names_path.exists():
+        model.feature_names_ = joblib.load(_feat_names_path)
     
     return model
 
