@@ -172,8 +172,8 @@ NN_PARAMS = {
 }
 
 MODEL_PATH      = Path("results/metrics/nn_model.h5")   # backward-compat
-MLP_MODEL_PATH  = Path("results/metrics/mlp/model.h5")
-LSTM_MODEL_PATH = Path("results/metrics/lstm/model.h5")
+MLP_MODEL_PATH  = Path("results/metrics/mlp/model.keras")
+LSTM_MODEL_PATH = Path("results/metrics/lstm/model.keras")
 
 
 # ---------------------------------------------------------------------------
@@ -659,11 +659,11 @@ def save_model(model: Union[TwoStageMLP, TwoStageLSTM, _SklearnTwoStageMLP], pat
     else:
         # Save model
         if isinstance(model, TwoStageMLP):
-            model.model_suit.save(path.parent / "model_suit.h5")
-            model.model_category.save(path.parent / "model_category.h5")
+            model.model_suit.save(path.parent / "model_suit.keras")
+            model.model_category.save(path.parent / "model_category.keras")
         elif isinstance(model, TwoStageLSTM):
-            model.model_suit.save(path.parent / "model_suit_lstm.h5")
-            model.model_category.save(path.parent / "model_category_lstm.h5")
+            model.model_suit.save(path.parent / "model_suit_lstm.keras")
+            model.model_category.save(path.parent / "model_category_lstm.keras")
 
         # Save encoders, scaler, and feature names
         joblib.dump(model.scaler, path.parent / "scaler.pkl")
@@ -697,13 +697,23 @@ def load_model(model_type: str = "mlp", path: Path = MODEL_PATH) -> Union[TwoSta
     if model_type.lower() == "mlp":
         _require_tensorflow()
         model = TwoStageMLP(input_dim=98)  # Dummy, akan di-load
-        model.model_suit = keras.models.load_model(path_dir / "model_suit.h5")
-        model.model_category = keras.models.load_model(path_dir / "model_category.h5")
+        # Try .keras first, fall back to .h5
+        if (path_dir / "model_suit.keras").exists():
+            model.model_suit = keras.models.load_model(path_dir / "model_suit.keras")
+            model.model_category = keras.models.load_model(path_dir / "model_category.keras")
+        else:
+            model.model_suit = keras.models.load_model(path_dir / "model_suit.h5")
+            model.model_category = keras.models.load_model(path_dir / "model_category.h5")
     elif model_type.lower() == "lstm":
         _require_tensorflow()
         model = TwoStageLSTM(input_dim=98)  # Dummy, akan di-load
-        model.model_suit = keras.models.load_model(path_dir / "model_suit_lstm.h5")
-        model.model_category = keras.models.load_model(path_dir / "model_category_lstm.h5")
+        # Try .keras first, fall back to .h5
+        if (path_dir / "model_suit_lstm.keras").exists():
+            model.model_suit = keras.models.load_model(path_dir / "model_suit_lstm.keras")
+            model.model_category = keras.models.load_model(path_dir / "model_category_lstm.keras")
+        else:
+            model.model_suit = keras.models.load_model(path_dir / "model_suit_lstm.h5")
+            model.model_category = keras.models.load_model(path_dir / "model_category_lstm.h5")
     else:
         raise ValueError(f"Unknown model type: {model_type}. Use 'mlp' or 'lstm'.")
     
