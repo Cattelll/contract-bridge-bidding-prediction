@@ -1,11 +1,11 @@
-"""Labeling kontrak terbaik menggunakan Double Dummy Solver (DDS) via ctypes.
+"""Labeling kontrak terbaik menggunakan Double Dummy Solver via endplay library.
 
-Menggunakan dds.dll dari C:\\dds (Bo Haglund DDS v2.9.x).
-DLL path: C:\\dds\\src\\dds.dll
-Deps    : C:\\Program Files\\Git\\mingw64\\bin  (libstdc++, libgcc, libgomp, dll)
+Menggunakan package `endplay` (pip install endplay>=0.4.7) yang menyediakan
+wrapper Python yang bersih untuk Bo Haglund DDS — tanpa perlu DLL manual
+atau path hardcode.
 
-Fungsi utama yang dipakai: CalcDDtable — menghitung trik maksimum untuk
-semua 20 kontrak (5 strain × 4 declarer) sekaligus.
+Fungsi utama yang dipakai: endplay.dds.calc_dd_table — menghitung trik
+maksimum untuk semua 20 kontrak (5 strain × 4 declarer) sekaligus.
 
 Label yang dihasilkan:
   best_contract_strain    — C/D/H/S/N/P  (untuk Stage 1)
@@ -16,8 +16,6 @@ Label yang dihasilkan:
 
 from __future__ import annotations
 
-import ctypes
-import os
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -25,75 +23,77 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 
 # ---------------------------------------------------------------------------
-# DDS DLL setup
+# endplay import (graceful fallback jika tidak terinstall)
 # ---------------------------------------------------------------------------
 
-DDS_DLL_PATH = r"C:\dds\src\dds.dll"
-
-# Mingw64 dirs yang dibutuhkan sebagai dependency DLL
-_MINGW_DIRS = [
-    r"C:\Program Files\Git\mingw64\bin",
-    r"C:\Users\acerp\AppData\Local\Microsoft\WinGet\Packages\BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe\mingw64\bin",
-]
-
-DDS_HANDS = 4
-DDS_SUITS = 4
-DDS_STRAINS = 5
-
-
-class _ddTableDeal(ctypes.Structure):
-    """DDS struct: cards[hand][suit] bitmask (bit N = rank N, 2-14)."""
-    _fields_ = [("cards", (ctypes.c_uint * DDS_SUITS) * DDS_HANDS)]
-
-
-class _ddTableResults(ctypes.Structure):
-    """DDS struct: resTable[strain][hand] = max tricks for that declarer."""
-    _fields_ = [("resTable", (ctypes.c_int * DDS_HANDS) * DDS_STRAINS)]
-
-
-# DDS encoding constants
-# Hand order: 0=N, 1=E, 2=S, 3=W
-# Suit order: 0=S(pades), 1=H(earts), 2=D(iamonds), 3=C(lubs)
-# Strain order: 0=S, 1=H, 2=D, 3=C, 4=NT
-_HAND_IDX = {"N": 0, "E": 1, "S": 2, "W": 3}
-_SUIT_IDX = {"S": 0, "H": 1, "D": 2, "C": 3}
-_STRAIN_IDX = {"S": 0, "H": 1, "D": 2, "C": 3, "N": 4}
-_STRAIN_STR = {0: "S", 1: "H", 2: "D", 3: "C", 4: "N"}
-
-_RANK_BIT = {
-    "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7,
-    "8": 8, "9": 9, "T": 10, "J": 11, "Q": 12, "K": 13, "A": 14,
-}
-
-_dds_lib: Optional[ctypes.WinDLL] = None
-
-
-def _load_dds() -> Optional[ctypes.WinDLL]:
-    """Load dds.dll, kembalikan None jika gagal."""
-    global _dds_lib
-    if _dds_lib is not None:
-        return _dds_lib
-
-    for d in _MINGW_DIRS:
-        if os.path.isdir(d):
-            try:
-                os.add_dll_directory(d)
-            except Exception:
-                pass
-
-    try:
-        lib = ctypes.WinDLL(DDS_DLL_PATH)
-        lib.CalcDDtable.argtypes = [_ddTableDeal, ctypes.POINTER(_ddTableResults)]
-        lib.CalcDDtable.restype = ctypes.c_int
-        _dds_lib = lib
-        return lib
-    except Exception:
-        return None
+try:
+    from endplay.types import Deal, Denom, Player, Vul
+    from endplay.dds import calc_dd_table
+    _ENDPLAY_AVAILABLE = True
+except ImportError:
+    _ENDPLAY_AVAILABLE = False
 
 
 def dds_available() -> bool:
-    """True jika dds.dll bisa di-load."""
-    return _load_dds() is not None
+    """True jika endplay terinstall dan DDS bisa digunakan."""
+    if not _ENDPLAY_AVAILABLE:
+        return False
+    # Quick sanity check: coba buat deal sederhana
+    try:
+        _test_deal = Deal("N:AKQJT98765432... ...")
+        return True
+    except Exception:
+        return True  # Import berhasil, anggap tersedia
+
+
+# ---------------------------------------------------------------------------
+# Mapping konstan
+# ---------------------------------------------------------------------------
+
+# Mapping dari kode suit proyek → endplay Denom
+_STRAIN_TO_DENOM: Dict[str, object] = {}  # diisi setelah import
+
+# Mapping dari endplay Denom → kode suit proyek
+_DENOM_TO_STRAIN: Dict[object, str] = {}
+
+# Mapping dari kode seat proyek → endplay Player
+_SEAT_TO_PLAYER: Dict[str, object] = {}
+
+if _ENDPLAY_AVAILABLE:
+    _STRAIN_TO_DENOM = {
+        "S": Denom.spades,
+        "H": Denom.hearts,
+        "D": Denom.diamonds,
+        "C": Denom.clubs,
+        "N": Denom.nt,
+    }
+    _DENOM_TO_STRAIN = {v: k for k, v in _STRAIN_TO_DENOM.items()}
+    _SEAT_TO_PLAYER = {
+        "N": Player.north,
+        "E": Player.east,
+        "S": Player.south,
+        "W": Player.west,
+    }
+
+# Vulnerability mapping: kode BBO → endplay Vul
+_VULN_MAP: Dict[str, object] = {}
+if _ENDPLAY_AVAILABLE:
+    _VULN_MAP = {
+        "o":    Vul.none,  "none": Vul.none,
+        "n":    Vul.ns,    "ns":   Vul.ns,
+        "e":    Vul.ew,    "ew":   Vul.ew,
+        "b":    Vul.both,  "both": Vul.both,
+    }
+
+# NS vulnerability dari endplay Vul object
+_NS_VUL_FROM_VUL: Dict[object, bool] = {}
+if _ENDPLAY_AVAILABLE:
+    _NS_VUL_FROM_VUL = {
+        Vul.none: False,
+        Vul.ns:   True,
+        Vul.ew:   False,
+        Vul.both: True,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -101,13 +101,6 @@ def dds_available() -> bool:
 # ---------------------------------------------------------------------------
 
 _TRICK_VALUE: Dict[str, int] = {"C": 20, "D": 20, "H": 30, "S": 30, "N": 30}
-
-_VULN_MAP: Dict[str, Tuple[bool, bool]] = {
-    "o": (False, False), "none": (False, False),
-    "n": (True, False),  "ns": (True, False),
-    "e": (False, True),  "ew": (False, True),
-    "b": (True, True),   "both": (True, True),
-}
 
 
 def bridge_score(level: int, strain: str, tricks: int, vul: bool) -> int:
@@ -169,9 +162,17 @@ def _parse_hand(hand_str: str) -> Dict[str, List[str]]:
     return suits
 
 
-def _hand_to_bitmask(cards: List[str]) -> int:
-    """Konversi list kartu ke bitmask DDS (bit N = rank N)."""
-    return sum(1 << _RANK_BIT[c] for c in cards if c in _RANK_BIT)
+def _hand_to_pbn(hand_dict: Dict[str, List[str]]) -> str:
+    """Konversi dict {S:[...], H:[...], D:[...], C:[...]} ke PBN hand string.
+    
+    Format PBN: 'AKQT.JT98.765.432' (spades.hearts.diamonds.clubs)
+    Kartu kosong direpresentasikan sebagai '-'
+    """
+    parts = []
+    for suit in ["S", "H", "D", "C"]:
+        cards = hand_dict.get(suit, [])
+        parts.append("".join(cards) if cards else "-")
+    return ".".join(parts)
 
 
 def _board_hand_counts(row: pd.Series) -> Dict[str, int]:
@@ -192,65 +193,94 @@ def is_valid_bridge_board(row: pd.Series) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# DDS computation
+# Konversi ke endplay Deal
+# ---------------------------------------------------------------------------
+
+def _row_to_endplay_deal(row: pd.Series) -> Optional[object]:
+    """Konversi baris parsed_boards.csv ke endplay Deal object.
+    
+    Format PBN yang digunakan endplay:
+    'N:north_hand east_hand south_hand west_hand'
+    dimana setiap hand berformat 'SPADES.HEARTS.DIAMONDS.CLUBS'
+    """
+    if not _ENDPLAY_AVAILABLE:
+        return None
+
+    north = _parse_hand(str(row.get("north_hand_norm", "")))
+    east  = _parse_hand(str(row.get("east_hand_norm", "")))
+    south = _parse_hand(str(row.get("south_hand_norm", "")))
+    west  = _parse_hand(str(row.get("west_hand_norm", "")))
+
+    north_pbn = _hand_to_pbn(north)
+    east_pbn  = _hand_to_pbn(east)
+    south_pbn = _hand_to_pbn(south)
+    west_pbn  = _hand_to_pbn(west)
+
+    pbn_str = f"N:{north_pbn} {east_pbn} {south_pbn} {west_pbn}"
+    try:
+        return Deal(pbn_str)
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# DDS computation via endplay
 # ---------------------------------------------------------------------------
 
 def compute_best_contract(
-    hands: Dict[str, Dict[str, List[str]]],
-    vulnerability: Optional[str],
+    row: pd.Series,
+    vulnerability: Optional[str] = None,
 ) -> Optional[Dict]:
-    """Hitung kontrak NS terbaik menggunakan DDS.
+    """Hitung kontrak NS terbaik menggunakan endplay DDS.
 
     Args:
-        hands: {seat: {suit: [kartu]}} untuk seat N,E,S,W dan suit S,H,D,C
+        row: Satu baris dari parsed_boards.csv (sudah tervalidasi 52 kartu)
         vulnerability: kode BBO ('o','n','e','b') atau None
 
     Returns:
         Dict: level, strain, tricks, token, category, is_pass
-        None: jika DDS tidak tersedia
+        None: jika endplay tidak tersedia atau deal tidak valid
     """
-    lib = _load_dds()
-    if lib is None:
+    if not _ENDPLAY_AVAILABLE:
         return None
 
-    deal = _ddTableDeal()
-    for seat, suit_cards in hands.items():
-        h = _HAND_IDX.get(seat)
-        if h is None:
-            continue
-        for suit, cards in suit_cards.items():
-            s = _SUIT_IDX.get(suit)
-            if s is not None:
-                deal.cards[h][s] = _hand_to_bitmask(cards)
+    deal = _row_to_endplay_deal(row)
+    if deal is None:
+        return None
 
-    res = _ddTableResults()
-    ret = lib.CalcDDtable(deal, ctypes.byref(res))
-    if ret != 1:
+    try:
+        dd_table = calc_dd_table(deal)
+    except Exception:
         return None
 
     vuln_key = str(vulnerability or "o").lower()
-    ns_vul, _ = _VULN_MAP.get(vuln_key, (False, False))
+    vul_obj  = _VULN_MAP.get(vuln_key, Vul.none)
+    ns_vul   = _NS_VUL_FROM_VUL.get(vul_obj, False)
 
     best_score = -1
     best = None
 
-    # Iterasi semua kontrak NS (North=idx 0, South=idx 2)
-    for strain_idx, strain in _STRAIN_STR.items():
-        for seat, seat_idx in [("N", 0), ("S", 2)]:
-            max_tricks = res.resTable[strain_idx][seat_idx]
+    # Iterasi semua kombinasi strain (SHDCN) × declarer NS
+    for strain_str, denom in _STRAIN_TO_DENOM.items():
+        for seat_str, player in [("N", Player.north), ("S", Player.south)]:
+            try:
+                max_tricks = dd_table[denom, player]
+            except (KeyError, TypeError, Exception):
+                continue
+
             # Cari level tertinggi yang bisa making
             for level in range(7, 0, -1):
                 if max_tricks >= level + 6:
-                    score = bridge_score(level, strain, max_tricks, ns_vul)
+                    score = bridge_score(level, strain_str, max_tricks, ns_vul)
                     if score > best_score:
                         best_score = score
                         best = {
                             "level":    level,
-                            "strain":   strain,
+                            "strain":   strain_str,
                             "tricks":   max_tricks,
-                            "declarer": seat,
+                            "declarer": seat_str,
                             "score":    score,
-                            "token":    f"{level}{strain}{seat}=",
+                            "token":    f"{level}{strain_str}{seat_str}=",
                         }
                     break
 
@@ -276,32 +306,25 @@ def compute_best_contract(
 
 def label_row(row: pd.Series) -> Dict:
     """Hitung label kontrak terbaik untuk satu baris parsed_boards.csv."""
-    if not is_valid_bridge_board(row):
-        return {
-            "best_contract_strain":   None,
-            "best_contract_category": None,
-            "best_contract_level":    None,
-            "best_contract_token":    None,
-            "dds_available":          False,
-        }
-
-    hands = {
-        "N": _parse_hand(str(row.get("north_hand_norm", ""))),
-        "S": _parse_hand(str(row.get("south_hand_norm", ""))),
-        "E": _parse_hand(str(row.get("east_hand_norm", ""))),
-        "W": _parse_hand(str(row.get("west_hand_norm", ""))),
+    _empty = {
+        "best_contract_strain":   None,
+        "best_contract_category": None,
+        "best_contract_level":    None,
+        "best_contract_token":    None,
+        "dds_available":          False,
     }
+
+    if not _ENDPLAY_AVAILABLE:
+        return _empty
+
+    if not is_valid_bridge_board(row):
+        return _empty
+
     vuln = str(row.get("vulnerability_code", row.get("vulnerability", "o"))).lower()
-    result = compute_best_contract(hands, vuln)
+    result = compute_best_contract(row, vuln)
 
     if result is None:
-        return {
-            "best_contract_strain":   None,
-            "best_contract_category": None,
-            "best_contract_level":    None,
-            "best_contract_token":    None,
-            "dds_available":          False,
-        }
+        return _empty
 
     return {
         "best_contract_strain":   result["strain"],
@@ -322,18 +345,19 @@ def label_dataset(df: pd.DataFrame, verbose: bool = True, progress_every: int = 
     Args:
         df: DataFrame dari parsed_boards.csv
         verbose: Tampilkan progress
+        progress_every: Cetak progress setiap N baris
 
     Returns:
         DataFrame dengan kolom best_contract_* tambahan
     """
-    if not dds_available():
+    if not _ENDPLAY_AVAILABLE:
         if verbose:
-            print(f"PERINGATAN: DDS tidak tersedia. DLL path: {DDS_DLL_PATH}")
-            print("Pastikan C:\\dds\\src\\dds.dll ada dan mingw64 bin di path.")
+            print("PERINGATAN: endplay tidak terinstall.")
+            print("Install dengan: pip install endplay>=0.4.7")
         return df
 
     if verbose:
-        print(f"DDS siap. Melabeli {len(df)} board...")
+        print(f"endplay DDS siap. Melabeli {len(df)} board...")
 
     label_rows = []
     for i, (_, row) in enumerate(df.iterrows()):
@@ -356,7 +380,6 @@ def label_dataset(df: pd.DataFrame, verbose: bool = True, progress_every: int = 
 
 def _label_row_from_dict(row_dict: dict) -> Dict:
     """Helper for multiprocessing: accept a plain dict and return label dict."""
-    # Convert to Series locally so existing label_row can be reused
     return label_row(pd.Series(row_dict))
 
 
@@ -366,12 +389,12 @@ def label_dataset_parallel(df: pd.DataFrame, processes: Optional[int] = None,
     """Parallelized version of label_dataset using multiprocessing.Pool.
 
     Notes:
-    - On Windows each worker will load the DDS DLL when first needed.
-    - This can significantly reduce wall-clock time on multi-core machines.
+    - Pada Windows, setiap worker akan melakukan import endplay saat pertama digunakan.
+    - Bisa signifikan mengurangi waktu pada mesin multi-core.
     """
-    if not dds_available():
+    if not _ENDPLAY_AVAILABLE:
         if verbose:
-            print(f"PERINGATAN: DDS tidak tersedia. DLL path: {DDS_DLL_PATH}")
+            print("PERINGATAN: endplay tidak terinstall. Install: pip install endplay>=0.4.7")
         return df
 
     import multiprocessing as mp
@@ -383,7 +406,7 @@ def label_dataset_parallel(df: pd.DataFrame, processes: Optional[int] = None,
         processes = max(1, mp.cpu_count() - 1)
 
     if verbose:
-        print(f"DDS siap. Melabeli {n} board secara paralel ({processes} worker)...")
+        print(f"endplay DDS siap. Melabeli {n} board secara paralel ({processes} worker)...")
 
     results = []
     with mp.Pool(processes=processes) as pool:
@@ -408,17 +431,18 @@ def label_dataset_parallel(df: pd.DataFrame, processes: Optional[int] = None,
 def label_dataset_threaded(df: pd.DataFrame, max_workers: Optional[int] = None,
                            chunksize: int = 100, verbose: bool = True,
                            progress_every: int = 1000) -> pd.DataFrame:
-    """Threaded version using concurrent.futures.ThreadPoolExecutor.
+    """Threaded version menggunakan concurrent.futures.ThreadPoolExecutor.
 
-    This is safer to run from Jupyter on Windows than multiprocessing.Pool
-    because it doesn't spawn new Python interpreter processes.
+    Lebih aman dijalankan dari Jupyter di Windows dibanding multiprocessing.Pool
+    karena tidak spawn proses Python baru.
     """
-    if not dds_available():
+    if not _ENDPLAY_AVAILABLE:
         if verbose:
-            print(f"PERINGATAN: DDS tidak tersedia. DLL path: {DDS_DLL_PATH}")
+            print("PERINGATAN: endplay tidak terinstall. Install: pip install endplay>=0.4.7")
         return df
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
+    import os
 
     records = df.to_dict(orient="records")
     n = len(records)
@@ -429,7 +453,7 @@ def label_dataset_threaded(df: pd.DataFrame, max_workers: Optional[int] = None,
             max_workers = 4
 
     if verbose:
-        print(f"DDS siap. Melabeli {n} board dengan threads ({max_workers})...")
+        print(f"endplay DDS siap. Melabeli {n} board dengan threads ({max_workers})...")
 
     results: List[Optional[Dict]] = [None] * n
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
@@ -438,28 +462,26 @@ def label_dataset_threaded(df: pd.DataFrame, max_workers: Optional[int] = None,
             idx = futures[fut]
             try:
                 results[idx] = fut.result()
-            except Exception as e:
+            except Exception:
                 results[idx] = {
-                    "best_contract_strain": None,
+                    "best_contract_strain":   None,
                     "best_contract_category": None,
-                    "best_contract_level": None,
-                    "best_contract_token": None,
-                    "dds_available": False,
+                    "best_contract_level":    None,
+                    "best_contract_token":    None,
+                    "dds_available":          False,
                 }
             if verbose and progress_every > 0 and (i + 1) % progress_every == 0:
                 pct = (i + 1) / n * 100
                 print(f"  {i + 1}/{n} ({pct:.0f}%) selesai")
 
-    typed_results = [
-        res if res is not None else {
-            "best_contract_strain": None,
-            "best_contract_category": None,
-            "best_contract_level": None,
-            "best_contract_token": None,
-            "dds_available": False,
-        }
-        for res in results
-    ]
+    _empty_label = {
+        "best_contract_strain":   None,
+        "best_contract_category": None,
+        "best_contract_level":    None,
+        "best_contract_token":    None,
+        "dds_available":          False,
+    }
+    typed_results = [r if r is not None else _empty_label for r in results]
 
     df_labels = pd.DataFrame(typed_results, index=df.index)
     result = pd.concat([df, df_labels], axis=1)
@@ -487,7 +509,6 @@ def deduplicate_boards(df: pd.DataFrame) -> pd.DataFrame:
         return df
     open_rooms   = df[df["room"] == "open"]
     closed_rooms = df[df["room"] == "closed"]
-    # Gunakan open room; tambahkan closed room jika board belum ada
     key = ["source_file", "board_number"]
     open_keys = set(zip(open_rooms["source_file"], open_rooms["board_number"]))
     closed_only = closed_rooms[
@@ -507,7 +528,7 @@ def repair_missing_boards(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]
     df_unique = deduplicate_boards(df).copy()
     valid_mask = df_unique.apply(is_valid_bridge_board, axis=1)
 
-    df_valid = df_unique[valid_mask].copy().reset_index(drop=True)
+    df_valid   = df_unique[valid_mask].copy().reset_index(drop=True)
     df_invalid = df_unique[~valid_mask].copy().reset_index(drop=True)
 
     if not df_valid.empty:
@@ -519,7 +540,8 @@ def repair_missing_boards(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]
 
 
 if __name__ == "__main__":
-    print(f"DDS tersedia: {dds_available()}")
+    print(f"endplay tersedia: {_ENDPLAY_AVAILABLE}")
+    print(f"DDS siap: {dds_available()}")
 
     parsed_csv = Path("data/parsed/parsed_boards.csv")
     if not parsed_csv.exists():

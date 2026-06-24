@@ -6,12 +6,11 @@ seaborn>=0.12.0
 joblib>=1.3.0
 
 # Deep Learning — MLP dan LSTM
-# TensorFlow belum tersedia untuk Python 3.14 di environment ini.
-# Fallback MLP berbasis scikit-learn tetap bisa dipakai tanpa TensorFlow.
-# Jika ingin menjalankan LSTM, gunakan Python 3.12 atau lebih rendah lalu install TensorFlow secara manual.
+tensorflow>=2.13.0
 keras>=2.13.0
 
 # Double Dummy Solver — untuk DDS labeling (Step 4)
+# CATATAN: .venv menggunakan Python 3.12 (endplay butuh Python <=3.13)
 endplay>=0.4.7
 
 # Jupyter Notebook
