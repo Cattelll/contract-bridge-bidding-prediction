@@ -38,7 +38,7 @@ TRICK_VALUE = {"C": 20, "D": 20, "H": 30, "S": 30, "N": 30}
 
 
 # Paths relative to project root (from src/evaluate.py)
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 FIGURES_DIR = PROJECT_ROOT / "results/figures"
 METRICS_DIR = PROJECT_ROOT / "results/metrics"
 

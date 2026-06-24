@@ -48,10 +48,10 @@ HAS_TF = keras is not None and layers is not None
 
 
 # Paths relative to project root (from src/model.py)
-PROJECT_ROOT = Path(__file__).parent.parent
-MODEL_PATH      = PROJECT_ROOT / "results/metrics/nn_model.h5"   # backward-compat
-MLP_MODEL_PATH  = PROJECT_ROOT / "results/metrics/mlp/model.keras"
-LSTM_MODEL_PATH = PROJECT_ROOT / "results/metrics/lstm/model.keras"
+PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+MODEL_PATH      = (PROJECT_ROOT / "results/metrics/nn_model.h5").absolute()   # backward-compat
+MLP_MODEL_PATH  = (PROJECT_ROOT / "results/metrics/mlp/model.keras").absolute()
+LSTM_MODEL_PATH = (PROJECT_ROOT / "results/metrics/lstm/model.keras").absolute()
 
 
 class _SklearnTwoStageMLP:
@@ -655,6 +655,10 @@ def train(
 
 def save_model(model: Union[TwoStageMLP, TwoStageLSTM, _SklearnTwoStageMLP], path: Path = MODEL_PATH) -> None:
     """Simpan model ke disk."""
+    path = Path(path)
+    if not path.is_absolute():
+        path = (PROJECT_ROOT / path).absolute()
+    
     path.parent.mkdir(parents=True, exist_ok=True)
 
     if isinstance(model, _SklearnTwoStageMLP):
@@ -675,7 +679,7 @@ def save_model(model: Union[TwoStageMLP, TwoStageLSTM, _SklearnTwoStageMLP], pat
         if model.feature_names_ is not None:
             joblib.dump(model.feature_names_, path.parent / "feature_names.pkl")
     
-    print(f"Model disimpan ke {path.parent}")
+    print(f"Model disimpan ke {path.parent.absolute()}")
 
 
 def load_model(model_type: str = "mlp", path: Path = MODEL_PATH) -> Union[TwoStageMLP, TwoStageLSTM, _SklearnTwoStageMLP]:
@@ -691,6 +695,10 @@ def load_model(model_type: str = "mlp", path: Path = MODEL_PATH) -> Union[TwoSta
         path = Path(model_type)
         model_type = "mlp"
 
+    path = Path(path)
+    if not path.is_absolute():
+        path = (PROJECT_ROOT / path).absolute()
+        
     path_dir = path.parent
 
     sklearn_path = path_dir / "model_sklearn_mlp.pkl"
